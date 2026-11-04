@@ -129,6 +129,9 @@ input[type=password]{background:var(--page);border:1px solid var(--line);border-
       <label for="model">Model<input type="text" id="model" spellcheck="false"></label>
       <label for="baseUrl" id="baseUrlWrap">Server URL <small>An https address ending in /v1</small><input type="text" id="baseUrl" spellcheck="false"></label>
       <p class="note" id="providerNote"></p>
+      <div class="row"><button class="btn" type="button" id="testBtn">Test connection</button></div>
+      <pre id="testOut" hidden style="white-space:pre-wrap;overflow-wrap:anywhere;font-size:11.5px;background:var(--page);border:1px solid var(--line);border-radius:6px;padding:8px;margin:0;max-height:260px;overflow:auto"></pre>
+      <p class="note">App version 5</p>
     </div>
 
     <div class="group">
@@ -495,6 +498,45 @@ $("importFile").onchange=async()=>{
     save(); fillSetup(); render(); scrollEnd(); status("");
   }catch(e){status("That file isn't a Storyroom backup.")}
   $("importFile").value="";
+};
+
+/* ---------- connection test ---------- */
+$("testBtn").onclick=async()=>{
+  const out=$("testOut"); out.hidden=false; $("testBtn").disabled=true;
+  const p=PROVIDERS[conn.provider]||PROVIDERS.anthropic;
+  const model=conn.model||p.model, base=(conn.provider==="custom"?conn.baseUrl:p.url).replace(/\/+$/,"");
+  const log=t=>{out.textContent+=t+"\n"};
+  out.textContent="";
+  log("Server: "+(base||"(none)")); log("Model: "+(model||"(none)"));
+  try{
+    let url,headers={"content-type":"application/json"},body;
+    if(conn.provider==="anthropic"){
+      url=base+"/messages";
+      Object.assign(headers,{"x-api-key":conn.apiKey,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"});
+      body={model,max_tokens:50,messages:[{role:"user",content:"Reply with just the word: hello"}]};
+    }else{
+      url=base+"/chat/completions"; if(conn.apiKey)headers.authorization="Bearer "+conn.apiKey;
+      body={model,max_tokens:1500,messages:[{role:"user",content:"Reply with just the word: hello"}]};
+    }
+    log("Sending a short test (can take a minute)…");
+    const t0=Date.now();
+    const res=await fetch(url,{method:"POST",headers,body:JSON.stringify(body)});
+    log("Status: "+res.status+" after "+Math.round((Date.now()-t0)/1000)+"s");
+    const raw=await res.text();
+    let j=null;try{j=JSON.parse(raw)}catch(e){}
+    if(j&&conn.provider!=="anthropic"&&j.choices){
+      const m=j.choices[0]?.message||{};
+      log("Reply text: "+JSON.stringify(m.content??null));
+      const r=m.reasoning_content||m.reasoning; if(r)log("Thinking text: "+r.length+" characters");
+      log("Finish reason: "+j.choices[0]?.finish_reason);
+      if(!m.content&&r) log("\n→ The model only thought and didn't answer. Turn off thinking in LM Studio.");
+      else if(m.content) log("\n→ Connection works.");
+    }
+    log("\nRaw response (start):\n"+raw.slice(0,1200));
+  }catch(e){
+    log("Request failed: "+(e&&e.message||e));
+    log("\n→ The phone couldn't reach the server. Check Tailscale is on, the address is right, and LM Studio's server is running with CORS enabled.");
+  }finally{$("testBtn").disabled=false}
 };
 
 fillSetup(); fillConn(); syncAside(); render(); scrollEnd();
