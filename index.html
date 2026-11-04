@@ -251,7 +251,7 @@ function fillSetup(){
 fields.forEach(f=>$(f).addEventListener("input",()=>{state.setup[f]=$(f).value;save();renderHeader();if(f==="charName"||f==="userName")render()}));
 document.querySelectorAll('input[name=rating]').forEach(r=>r.addEventListener("change",()=>{state.setup.rating=r.value;save();renderHeader()}));
 $("toggleSetup").onclick=()=>{document.body.classList.add("setup-open");$("setup").style.display="flex"};
-$("closeSetup").onclick=()=>{$("setup").style.display=""};
+$("closeSetup").onclick=()=>{$("setup").style.display=mq.matches?"none":""};
 const mq=matchMedia("(max-width:820px)");
 function syncAside(){$("setup").style.display=mq.matches?"none":""}
 mq.addEventListener("change",syncAside);
@@ -370,7 +370,7 @@ function apiMessages(input){
   for(const t of input){const last=out.at(-1); if(last&&last.role===t.role) last.content+="\n\n"+t.content; else out.push({...t})}
   return out;
 }
-async function callModel(input,{signal,onText}){
+async function callModel(input,{signal,onText,onThinking}){
   const p=PROVIDERS[conn.provider]||PROVIDERS.anthropic;
   const model=conn.model||p.model, base=(conn.provider==="custom"?conn.baseUrl:p.url).replace(/\/+$/,"");
   if(!base) throw {code:"setup",message:"Enter your server URL in Setup → AI connection."};
@@ -379,7 +379,8 @@ async function callModel(input,{signal,onText}){
   const [sys,...rest]=input; const msgs=apiMessages(rest);
   if(!msgs.length||msgs[0].role!=="user") msgs.unshift({role:"user",content:"((Begin the scene.))"});
   let url,headers={"content-type":"application/json"},body;
-  const maxTokens=state.setup.length==="long"?2000:state.setup.length==="short"?500:1000;
+  let maxTokens=state.setup.length==="long"?2000:state.setup.length==="short"?500:1000;
+  if(conn.provider!=="anthropic") maxTokens+=4000; // room for models that think before replying
   if(conn.provider==="anthropic"){
     url=base+"/messages";
     Object.assign(headers,{"x-api-key":conn.apiKey,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"});
@@ -400,7 +401,7 @@ async function callModel(input,{signal,onText}){
       res.status===404?"Model or server not found. Check the model name in Setup.":"The AI server returned an error ("+res.status+").";
     throw {code:"http",message:msg+(detail?" "+detail:"")};
   }
-  const reader=res.body.getReader(),dec=new TextDecoder();let buf="",text="",truncated=false;
+  const reader=res.body.getReader(),dec=new TextDecoder();let buf="",text="",truncated=false,thought=0;
   try{
     for(;;){
       const {value,done}=await reader.read(); if(done)break;
@@ -417,13 +418,15 @@ async function callModel(input,{signal,onText}){
           if(j.type==="error")throw {code:"http",message:j.error?.message||"The AI server reported an error.",text};
         }else{
           const c=j.choices?.[0]; delta=c?.delta?.content||""; if(c?.finish_reason==="length")truncated=true;
+          const r=c?.delta?.reasoning_content||c?.delta?.reasoning||"";
+          if(r&&!text){thought+=r.length;onThinking&&onThinking(Math.round(thought/5))}
           if(j.error)throw {code:"http",message:j.error.message||"The AI server reported an error.",text};
         }
         if(delta){text+=delta;onText({text})}
       }
     }
   }catch(e){if(e&&e.name==="AbortError")throw {code:"cancelled",text};throw e}
-  if(!text.trim())throw {code:"empty",message:"No reply came back. The model may have declined; try editing the last line."};
+  if(!text.trim())throw {code:"empty",message:thought?"The model spent its whole reply limit thinking and never answered. Turn off thinking (reasoning) for this model in LM Studio, then try again.":"No reply came back. The model may have declined; try editing the last line."};
   return {text,truncated};
 }
 
@@ -432,7 +435,7 @@ async function run(target, input, mode){
   const base = mode==="continue"? target.content : "";
   target.thinking=true; render(); scrollEnd();
   try{
-    const {text,truncated}=await callModel(input,{signal:busy.signal,onText:({text})=>{
+    const {text,truncated}=await callModel(input,{signal:busy.signal,onThinking:(w)=>{if(base)return;const bodies=document.querySelectorAll(".msg .body");const b=bodies[bodies.length-1];if(b)b.innerHTML="<em>…thinking ("+w+" words so far)…</em>"},onText:({text})=>{
       target.content=(base?base+(base.endsWith(" ")?"":" "):"")+text;
       const bodies=document.querySelectorAll(".msg .body");const b=bodies[bodies.length-1];if(b)b.innerHTML=fmt(target.content);scrollEnd();}});
     target.content=(base?base+(base.endsWith(" ")?"":" "):"")+text;
