@@ -133,7 +133,7 @@ input[type=password]{background:var(--page);border:1px solid var(--line);border-
       <p class="note" id="providerNote"></p>
       <div class="row"><button class="btn" type="button" id="testBtn">Test connection</button></div>
       <pre id="testOut" hidden style="white-space:pre-wrap;overflow-wrap:anywhere;font-size:11.5px;background:var(--page);border:1px solid var(--line);border-radius:6px;padding:8px;margin:0;max-height:260px;overflow:auto"></pre>
-      <p class="note">App version 8</p>
+      <p class="note">App version 9</p>
     </div>
 
     <div class="group">
@@ -186,6 +186,19 @@ input[type=password]{background:var(--page);border:1px solid var(--line);border-
       <label class="check" for="noQuestions"><input type="checkbox" id="noQuestions">Don't end by asking me what happens next</label>
       <label class="check" for="noOoc"><input type="checkbox" id="noOoc">No out-of-character notes or commentary</label>
       <label for="style">Custom instructions <small>Followed over the settings above</small><textarea id="style" rows="3"></textarea></label>
+    </div>
+
+    <div class="group">
+      <h2>Reply tuning</h2>
+      <p class="note">Pull the latest reply, rewrite it the way you wanted it, then release it back. The chat gets your version, and future replies learn from what you changed.</p>
+      <div class="row"><button class="btn primary" type="button" id="pullBtn">Pull latest reply</button></div>
+      <div id="pullArea" class="group" hidden>
+        <label for="pullText">Latest reply <small>Edit freely</small><textarea id="pullText" rows="8"></textarea></label>
+        <label class="check" for="pullLearn"><input type="checkbox" id="pullLearn" checked>Learn from my changes</label>
+        <div class="row"><button class="btn primary" type="button" id="releaseBtn">Release back to chat</button><button class="btn" type="button" id="pullCancel">Cancel</button></div>
+      </div>
+      <p class="note" id="lessonsNote"></p>
+      <div class="row"><button class="btn" type="button" id="lessonsClear" hidden>Forget learned edits</button></div>
     </div>
 
     <div class="group">
@@ -266,7 +279,7 @@ let sample = null;
 const $ = id => document.getElementById(id);
 const fields = ["charName","persona","greeting","scenario","userName","userPersona","avoid","allow","length","style","mode","strength","styleExample"];
 const checks = ["exact","noFiller","noQuestions","noOoc"];
-const SETUP_DEFAULTS = {styleExample:"",mode:"line",strength:"vivid",exact:true,noFiller:true,noQuestions:true,noOoc:true};
+const SETUP_DEFAULTS = {lessons:[],styleExample:"",mode:"line",strength:"vivid",exact:true,noFiller:true,noQuestions:true,noOoc:true};
 let state = load();
 
 function uid(){return Math.random().toString(36).slice(2,10)}
@@ -283,6 +296,7 @@ function fmt(t){return esc(t).replace(/\*([^*\n]+)\*/g,"<em>*$1*</em>")}
 function fillSetup(){
   fields.forEach(f=>{$(f).value=state.setup[f]??SETUP_DEFAULTS[f]??""});
   checks.forEach(f=>{$(f).checked=!!(state.setup[f]??SETUP_DEFAULTS[f])});
+  if(typeof lessonsSync==="function")lessonsSync();
   if($("tuneGen"))$("tuneGen").textContent=(state.setup.styleExample||"").trim()?"Write a matching sample":"Write a sample";
   const r=$("r-"+(state.setup.rating||"teen")); if(r) r.checked=true;
   renderHeader();
@@ -397,6 +411,37 @@ $("tuneClear").onclick=()=>{
   state.setup.styleExample="";$("styleExample").value="";save();tuneSync();
 };
 
+/* ---------- reply tuning ---------- */
+let pulledId=null, pulledOriginal="";
+function lessonsSync(){
+  const n=(state.setup.lessons||[]).length;
+  $("lessonsNote").textContent=n?`Learning from your ${n} most recent edit${n>1?"s":""}.`:"";
+  $("lessonsClear").hidden=!n;
+}
+$("pullBtn").onclick=()=>{
+  const last=[...state.messages].reverse().find(m=>m.role==="assistant"&&!m.thinking&&m.content.trim());
+  if(!last){$("lessonsNote").textContent="There's no reply to pull yet.";return}
+  pulledId=last.id; pulledOriginal=last.content;
+  $("pullText").value=last.content; $("pullArea").hidden=false; $("pullText").focus();
+};
+$("pullCancel").onclick=()=>{pulledId=null;$("pullArea").hidden=true;lessonsSync()};
+$("releaseBtn").onclick=()=>{
+  const v=$("pullText").value.trim(); if(!v||!pulledId)return;
+  const m=state.messages.find(x=>x.id===pulledId);
+  if(m){m.content=v;delete m.error}
+  const changed=v!==pulledOriginal.trim();
+  if(changed&&$("pullLearn").checked){
+    state.setup.lessons=[...(state.setup.lessons||[]),{before:pulledOriginal.slice(0,1500),after:v.slice(0,1500)}].slice(-3);
+  }
+  save(); render(); pulledId=null; $("pullArea").hidden=true; lessonsSync();
+  $("lessonsNote").textContent=(m?"Released to the chat. ":"That reply is no longer in the chat. ")+(changed&&$("pullLearn").checked?$("lessonsNote").textContent:"");
+};
+let lessonsArm=false;
+$("lessonsClear").onclick=()=>{
+  if(!lessonsArm){lessonsArm=true;$("lessonsClear").textContent="Click again to forget";setTimeout(()=>{lessonsArm=false;$("lessonsClear").textContent="Forget learned edits"},3000);return}
+  lessonsArm=false;$("lessonsClear").textContent="Forget learned edits";state.setup.lessons=[];save();lessonsSync();
+};
+
 function rules(){
   const s=state.setup,n=names(),r=RATINGS[s.rating]||RATINGS.teen;
   return [
@@ -418,6 +463,7 @@ function rules(){
     s.noQuestions?`Don't end replies by asking the user what happens next or offering them choices.`:"",
     s.noOoc?`Never step outside the story to add notes, commentary, summaries or explanations.`:"",
     `Earlier replies may have been edited by the user; treat them as canon. Text inside (( double parentheses )) is an out-of-character note from the user: follow it${s.noOoc?"":", and only answer out of character if it asks a question"}.`,
+    (s.lessons||[]).length?`\nEDITS THE USER MADE TO YOUR EARLIER REPLIES. Study what they changed (length, tone, word choice, what they cut or added) and write every new reply the way their edited versions read. Don't reuse the content itself.\n`+s.lessons.map((l,i)=>`Edit ${i+1}. Your version:\n"""\n${l.before}\n"""\nThe user's version:\n"""\n${l.after}\n"""`).join("\n"):"",
     (s.styleExample||"").trim()?`\nSTYLE EXAMPLE (approved by the user). Match its voice, sentence length, pacing, word choice, level of detail and formatting closely in every reply. Don't reuse its events or exact wording:\n"""\n${s.styleExample.trim()}\n"""`:"",
     s.style.trim()?`\nCUSTOM INSTRUCTIONS (these take priority over the style settings above):\n${s.style.trim()}`:"",
     `\nReply with only the story text for this turn, no name label.`
