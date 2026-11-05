@@ -55,6 +55,8 @@ textarea{resize:vertical;min-height:64px;line-height:1.45}
 .level em{font-style:normal;font-size:12px;color:var(--muted)}
 .level:has(input:checked){border-color:var(--accent);background:var(--soft)}
 .note{font-size:12px;color:var(--muted);margin:0}
+.check{flex-direction:row;align-items:flex-start;gap:9px;font-weight:400;font-size:13px;cursor:pointer}
+.check input{margin:3px 0 0;accent-color:var(--accent);flex:none}
 .row{display:flex;gap:8px;flex-wrap:wrap}
 
 .btn{border:1px solid var(--line);background:var(--page);border-radius:6px;padding:6px 12px;cursor:pointer;font-weight:500}
@@ -131,7 +133,7 @@ input[type=password]{background:var(--page);border:1px solid var(--line);border-
       <p class="note" id="providerNote"></p>
       <div class="row"><button class="btn" type="button" id="testBtn">Test connection</button></div>
       <pre id="testOut" hidden style="white-space:pre-wrap;overflow-wrap:anywhere;font-size:11.5px;background:var(--page);border:1px solid var(--line);border-radius:6px;padding:8px;margin:0;max-height:260px;overflow:auto"></pre>
-      <p class="note">App version 5</p>
+      <p class="note">App version 7</p>
     </div>
 
     <div class="group">
@@ -161,14 +163,41 @@ input[type=password]{background:var(--page);border:1px solid var(--line);border-
     </div>
 
     <div class="group">
-      <h2>Style</h2>
+      <h2>How replies are written</h2>
+      <label for="mode">My messages are
+        <select id="mode">
+          <option value="line">My character's lines and actions</option>
+          <option value="direction">Directions for what to write next</option>
+        </select></label>
+      <label for="strength">Writing strength
+        <select id="strength">
+          <option value="subtle">Subtle (understated, restrained)</option>
+          <option value="balanced">Balanced</option>
+          <option value="vivid">Potent (vivid, intense, high impact)</option>
+        </select></label>
       <label for="length">Reply length
         <select id="length">
           <option value="short">Short (1 paragraph)</option>
           <option value="medium">Medium (2–3 paragraphs)</option>
           <option value="long">Long (4+ paragraphs)</option>
         </select></label>
-      <label for="style">Writing notes<textarea id="style" rows="2"></textarea></label>
+      <label class="check" for="exact"><input type="checkbox" id="exact">Do exactly what I ask, nothing extra</label>
+      <label class="check" for="noFiller"><input type="checkbox" id="noFiller">No filler, recaps or padding</label>
+      <label class="check" for="noQuestions"><input type="checkbox" id="noQuestions">Don't end by asking me what happens next</label>
+      <label class="check" for="noOoc"><input type="checkbox" id="noOoc">No out-of-character notes or commentary</label>
+      <label for="style">Custom instructions <small>Followed over the settings above</small><textarea id="style" rows="3"></textarea></label>
+    </div>
+
+    <div class="group">
+      <h2>Style tuning</h2>
+      <p class="note">Write a sample, edit it until it reads exactly how you want, then write a new sample to check the model matches it. Your example guides every reply.</p>
+      <label for="styleExample">Style example<textarea id="styleExample" rows="6" placeholder="Tap Write a sample, or paste a paragraph you like"></textarea></label>
+      <div class="row"><button class="btn primary" type="button" id="tuneGen">Write a sample</button><button class="btn" type="button" id="tuneClear">Clear example</button></div>
+      <div id="tuneResult" class="group" hidden>
+        <label for="tunePreview">New sample <small>Written to match your example. Edit it too if you like.</small><textarea id="tunePreview" rows="6"></textarea></label>
+        <div class="row"><button class="btn" type="button" id="tuneUse">Use this as my example</button><button class="btn" type="button" id="tuneHide">Dismiss</button></div>
+      </div>
+      <p class="note" id="tuneMsg"></p>
     </div>
 
     <div class="row">
@@ -208,6 +237,9 @@ const RATINGS = {
   teen:{label:"Teen", rule:"Keep it at a teen level: mild language is fine, action and danger can be tense but not graphic, romance stays light and non-sexual."},
   mature:{label:"Mature", rule:"Mature themes are allowed: strong language, graphic violence, horror, and dark or morally complex subject matter. Romantic or sexual moments fade to black rather than being described explicitly."}
 };
+const STRENGTHS = {subtle:"Write in an understated, restrained way: suggestion over spectacle.",
+  balanced:"Write clear, engaging prose with a natural mix of action, dialogue and description.",
+  vivid:"Write with full force: strong verbs, sharp sensory detail, real emotional punch. Commit to the scene's intensity within the content rating instead of softening or hedging it."};
 const LENGTHS = {short:"Keep each reply to about one paragraph.", medium:"Keep each reply to about two or three paragraphs.", long:"Write rich replies of four or more paragraphs."};
 
 const EXAMPLE = {
@@ -233,12 +265,14 @@ let busy = null; // AbortController while generating
 let editingId = null;
 let sample = null;
 const $ = id => document.getElementById(id);
-const fields = ["charName","persona","greeting","scenario","userName","userPersona","avoid","allow","length","style"];
+const fields = ["charName","persona","greeting","scenario","userName","userPersona","avoid","allow","length","style","mode","strength","styleExample"];
+const checks = ["exact","noFiller","noQuestions","noOoc"];
+const SETUP_DEFAULTS = {styleExample:"",mode:"line",strength:"vivid",exact:true,noFiller:true,noQuestions:true,noOoc:true};
 
 function uid(){return Math.random().toString(36).slice(2,10)}
 function load(){
-  try{const s=JSON.parse(localStorage.getItem(KEY)); if(s&&s.setup&&Array.isArray(s.messages)) return s;}catch(e){}
-  const s=JSON.parse(JSON.stringify(EXAMPLE)); s.messages.forEach(m=>m.id=uid()); return s;
+  try{const s=JSON.parse(localStorage.getItem(KEY)); if(s&&s.setup&&Array.isArray(s.messages)){s.setup={...SETUP_DEFAULTS,...s.setup};return s}}catch(e){}
+  const s=JSON.parse(JSON.stringify(EXAMPLE)); s.setup={...SETUP_DEFAULTS,...s.setup}; s.messages.forEach(m=>m.id=uid()); return s;
 }
 function save(){try{localStorage.setItem(KEY,JSON.stringify(state))}catch(e){}}
 
@@ -247,10 +281,13 @@ function fmt(t){return esc(t).replace(/\*([^*\n]+)\*/g,"<em>*$1*</em>")}
 
 /* ---------- setup panel ---------- */
 function fillSetup(){
-  fields.forEach(f=>{$(f).value=state.setup[f]??""});
+  fields.forEach(f=>{$(f).value=state.setup[f]??SETUP_DEFAULTS[f]??""});
+  checks.forEach(f=>{$(f).checked=!!(state.setup[f]??SETUP_DEFAULTS[f])});
+  if($("tuneGen"))$("tuneGen").textContent=(state.setup.styleExample||"").trim()?"Write a matching sample":"Write a sample";
   const r=$("r-"+(state.setup.rating||"teen")); if(r) r.checked=true;
   renderHeader();
 }
+checks.forEach(f=>$(f).addEventListener("change",()=>{state.setup[f]=$(f).checked;save()}));
 fields.forEach(f=>$(f).addEventListener("input",()=>{state.setup[f]=$(f).value;save();renderHeader();if(f==="charName"||f==="userName")render()}));
 document.querySelectorAll('input[name=rating]').forEach(r=>r.addEventListener("change",()=>{state.setup.rating=r.value;save();renderHeader()}));
 $("toggleSetup").onclick=()=>{document.body.classList.add("setup-open");$("setup").style.display="flex"};
@@ -323,6 +360,43 @@ function btn(label,cls,fn){const b=document.createElement("button");b.type="butt
 function scrollEnd(){const s=$("scroll");s.scrollTop=s.scrollHeight}
 
 /* ---------- prompting ---------- */
+/* ---------- style tuning ---------- */
+const GEN=(t,signal,onText)=>callModel(t,{signal,onText});
+const errText=e=>e.message||"Something went wrong. Try again.";
+let tuneCtl=null;
+function tuneLabel(){return tuneCtl?"Stop":((state.setup.styleExample||"").trim()?"Write a matching sample":"Write a sample")}
+function tuneSync(){$("tuneGen").textContent=tuneLabel()}
+$("styleExample").addEventListener("input",tuneSync);
+$("tuneGen").onclick=async()=>{
+  if(tuneCtl){tuneCtl.abort();return}
+  const ex=(state.setup.styleExample||"").trim();
+  const box=ex?$("tunePreview"):$("styleExample");
+  $("tuneMsg").textContent=""; if(ex)$("tuneResult").hidden=false;
+  tuneCtl=new AbortController(); tuneSync();
+  const prev=box.value; box.value=""; box.placeholder="Writing…";
+  const n=names();
+  const recent=state.messages.filter(m=>m.content.trim()&&!m.thinking).slice(-6).map(m=>({role:m.role,content:m.content}));
+  const t=[{role:"user",content:rules()+"\n\nThe story so far follows."},...recent,
+    {role:"user",content:`((Style test: write ONE paragraph that could be ${n.ai}'s next turn in this scene.${ex?" Match the style example as closely as you can.":""} Reply with only that paragraph.))`}];
+  try{
+    const {text}=await GEN(t,tuneCtl.signal,({text})=>{box.value=text});
+    box.value=text.trim();
+    if(!ex){state.setup.styleExample=box.value;save()}
+  }catch(e){
+    if(e&&e.text)box.value=e.text; else if(!box.value)box.value=prev;
+    if(!ex)state.setup.styleExample=box.value,save();
+    if(!e||e.code!=="cancelled")$("tuneMsg").textContent=errText(e||{});
+  }finally{tuneCtl=null;box.placeholder="";tuneSync()}
+};
+$("tuneUse").onclick=()=>{const v=$("tunePreview").value.trim();if(!v)return;state.setup.styleExample=v;$("styleExample").value=v;save();$("tuneResult").hidden=true;tuneSync()};
+$("tuneHide").onclick=()=>{$("tuneResult").hidden=true};
+let tuneClearArm=false;
+$("tuneClear").onclick=()=>{
+  if(!tuneClearArm){tuneClearArm=true;$("tuneClear").textContent="Click again to clear";setTimeout(()=>{tuneClearArm=false;$("tuneClear").textContent="Clear example"},3000);return}
+  tuneClearArm=false;$("tuneClear").textContent="Clear example";
+  state.setup.styleExample="";$("styleExample").value="";save();tuneSync();
+};
+
 function rules(){
   const s=state.setup,n=names(),r=RATINGS[s.rating]||RATINGS.teen;
   return [
@@ -333,9 +407,20 @@ function rules(){
     `\nCONTENT RATING: ${r.label}. ${r.rule}`,
     s.allow.trim()?`Within that rating the user is fine with: ${s.allow.trim()}`:"",
     s.avoid.trim()?`Always steer around these topics: ${s.avoid.trim()}`:"",
-    `\nSTYLE: ${LENGTHS[s.length]||LENGTHS.medium} Put actions in *asterisks*. ${s.style||""}`,
-    `Stay in character. Never write ${n.user}'s dialogue or decisions for them. Earlier replies may have been edited by the user; treat them as canon. Text inside (( double parentheses )) is an out-of-character note from the user: follow it, and only answer out of character if it asks a question.`,
-    `Reply with only ${n.ai}'s next turn, no name label.`
+    `\nHOW TO WRITE:`,
+    s.mode==="direction"
+      ? `The user's messages are directions for what should happen or what to write next, not ${n.user}'s spoken lines (unless they put words in quotes). Carry out each direction as story writing. You may write ${n.user}'s actions when the direction calls for them.`
+      : `The user's messages are ${n.user}'s lines and actions. Never write ${n.user}'s dialogue or decisions for them.`,
+    STRENGTHS[s.strength]||STRENGTHS.vivid,
+    `${LENGTHS[s.length]||LENGTHS.medium} Put actions in *asterisks*.`,
+    s.exact?`Do exactly what the user's latest message asks, no more and no less. Don't add dialogue, events, characters or plot turns they didn't ask for, and stop when the requested moment is done.`:"",
+    s.noFiller?`No filler: no recaps of what already happened, no padding, no throat-clearing openings. Every sentence moves the scene.`:"",
+    s.noQuestions?`Don't end replies by asking the user what happens next or offering them choices.`:"",
+    s.noOoc?`Never step outside the story to add notes, commentary, summaries or explanations.`:"",
+    `Earlier replies may have been edited by the user; treat them as canon. Text inside (( double parentheses )) is an out-of-character note from the user: follow it${s.noOoc?"":", and only answer out of character if it asks a question"}.`,
+    (s.styleExample||"").trim()?`\nSTYLE EXAMPLE (approved by the user). Match its voice, sentence length, pacing, word choice, level of detail and formatting closely in every reply. Don't reuse its events or exact wording:\n"""\n${s.styleExample.trim()}\n"""`:"",
+    s.style.trim()?`\nCUSTOM INSTRUCTIONS (these take priority over the style settings above):\n${s.style.trim()}`:"",
+    `\nReply with only the story text for this turn, no name label.`
   ].filter(Boolean).join("\n");
 }
 function turns(extra){
@@ -494,7 +579,7 @@ $("importFile").onchange=async()=>{
   try{
     const j=JSON.parse(await f.text());
     if(!j.setup||!Array.isArray(j.messages))throw 0;
-    stopGen(); state={setup:{...EXAMPLE.setup,...j.setup},messages:j.messages.filter(m=>m&&(m.role==="user"||m.role==="assistant")&&typeof m.content==="string").map(m=>({id:m.id||uid(),role:m.role,content:m.content}))};
+    stopGen(); state={setup:{...EXAMPLE.setup,...SETUP_DEFAULTS,...j.setup},messages:j.messages.filter(m=>m&&(m.role==="user"||m.role==="assistant")&&typeof m.content==="string").map(m=>({id:m.id||uid(),role:m.role,content:m.content}))};
     save(); fillSetup(); render(); scrollEnd(); status("");
   }catch(e){status("That file isn't a Storyroom backup.")}
   $("importFile").value="";
