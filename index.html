@@ -55,6 +55,20 @@ textarea{resize:vertical;min-height:64px;line-height:1.45}
 .level em{font-style:normal;font-size:12px;color:var(--muted)}
 .level:has(input:checked){border-color:var(--accent);background:var(--soft)}
 .note{font-size:12px;color:var(--muted);margin:0}
+[hidden]{display:none!important}
+.tabs{display:flex;gap:4px;background:var(--soft);padding:3px;border-radius:8px}
+.tabs button{flex:1;border:0;background:none;padding:6px 8px;border-radius:6px;cursor:pointer;font-weight:600;color:var(--muted)}
+.tabs button[aria-selected="true"]{background:var(--page);color:var(--ink)}
+.pane{display:flex;flex-direction:column;gap:18px}
+.list{display:flex;flex-direction:column;gap:6px}
+.item{display:flex;align-items:center;gap:4px;padding:8px 8px 8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--page)}
+.item.current{border-color:var(--accent);background:var(--soft)}
+.item .main{flex:1;min-width:0;text-align:left;border:0;background:none;padding:0;cursor:pointer}
+.item .main b{display:block;font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.item .main span{display:block;font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.item .mini{border:0;background:none;color:var(--muted);font-size:12px;cursor:pointer;padding:4px 6px;border-radius:4px;white-space:nowrap}
+.item .mini:hover{background:var(--soft);color:var(--accent)}
+.item .mini.danger{color:var(--warn)}
 .check{flex-direction:row;align-items:flex-start;gap:9px;font-weight:400;font-size:13px;cursor:pointer}
 .check input{margin:3px 0 0;accent-color:var(--accent);flex:none}
 .row{display:flex;gap:8px;flex-wrap:wrap}
@@ -72,7 +86,7 @@ main{display:flex;flex-direction:column;min-width:0;height:100%}
 .topbar .scene b{font-family:var(--f-display);font-size:17px;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .topbar .scene small{color:var(--muted);font-size:12px}
 .pill{font-size:11px;text-transform:uppercase;letter-spacing:.07em;padding:3px 8px;border-radius:99px;background:var(--soft);color:var(--accent);font-weight:600;white-space:nowrap}
-#toggleSetup{display:none}
+#toggleSetup,#openChats{display:none}
 
 .scroll{flex:1;overflow-y:auto;padding-block:24px;
   padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
@@ -105,7 +119,7 @@ main{display:flex;flex-direction:column;min-width:0;height:100%}
   .app{grid-template-columns:minmax(0,1fr)}
   aside{position:fixed;inset:0;z-index:20;background:var(--paper);border-right:0;
     padding-top:max(20px,env(safe-area-inset-top,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-bottom:max(20px,env(safe-area-inset-bottom,0px))}
-  #toggleSetup,#closeSetup{display:inline-block}
+  #toggleSetup,#openChats,#closeSetup{display:inline-block}
 }
 @media (min-width:821px){#closeSetup{display:none}}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
@@ -118,6 +132,26 @@ input[type=password]{background:var(--page);border:1px solid var(--line);border-
 <div class="app">
   <aside id="setup">
     <div class="brand"><h1>Storyroom</h1><button class="btn" id="closeSetup" type="button">Done</button></div>
+    <div class="tabs" role="tablist">
+      <button type="button" role="tab" id="tabChats" aria-selected="false">Chats</button>
+      <button type="button" role="tab" id="tabSetup" aria-selected="true">Setup</button>
+    </div>
+
+    <div id="chatsPane" class="pane" hidden>
+      <div class="group">
+        <h2>Chats</h2>
+        <div id="chatList" class="list"></div>
+      </div>
+      <div class="group">
+        <h2>Characters</h2>
+        <div id="charList" class="list"></div>
+        <div class="row"><button class="btn primary" type="button" id="newCharBtn">New character</button><button class="btn" type="button" id="blankCharBtn">Blank character</button></div>
+        <p class="note" id="carryNote"></p>
+      </div>
+    </div>
+
+    <div id="setupPane" class="pane">
+    <p class="note" id="editingNote"></p>
 
     <div class="group">
       <h2>AI connection</h2>
@@ -136,11 +170,24 @@ input[type=password]{background:var(--page);border:1px solid var(--line);border-
           <option value="1000">Long (about 1,000 words)</option>
           <option value="0">Unlimited</option>
         </select></label>
+      <label for="creativity">Creativity <small>Lower is steadier and makes more sense</small>
+        <select id="creativity">
+          <option value="focused">Focused</option>
+          <option value="balanced">Balanced</option>
+          <option value="creative">Creative</option>
+        </select></label>
+      <label for="ctx" id="ctxWrap">Model memory <small>Match the Context Length in LM Studio's Load settings</small>
+        <select id="ctx">
+          <option value="4096">4,096 tokens</option>
+          <option value="8192">8,192 tokens</option>
+          <option value="16384">16,384 tokens</option>
+          <option value="32768">32,768 tokens</option>
+        </select></label>
       <label for="baseUrl" id="baseUrlWrap">Server URL <small>An https address ending in /v1</small><input type="text" id="baseUrl" spellcheck="false"></label>
       <p class="note" id="providerNote"></p>
       <div class="row"><button class="btn" type="button" id="testBtn">Test connection</button></div>
       <pre id="testOut" hidden style="white-space:pre-wrap;overflow-wrap:anywhere;font-size:11.5px;background:var(--page);border:1px solid var(--line);border-radius:6px;padding:8px;margin:0;max-height:260px;overflow:auto"></pre>
-      <p class="note">App version 11</p>
+      <p class="note">App version 15</p>
     </div>
 
     <div class="group">
@@ -222,16 +269,18 @@ input[type=password]{background:var(--page);border:1px solid var(--line);border-
     </div>
 
     <div class="row">
-      <button class="btn danger" type="button" id="newChat">Start new chat</button>
+      <button class="btn danger" type="button" id="newChat">Restart this chat</button>
       <button class="btn" type="button" id="exportBtn">Back up</button>
       <button class="btn" type="button" id="importBtn">Restore</button>
       <input type="file" id="importFile" accept="application/json,.json" hidden>
     </div>
-    <p class="note">Your setup and chat are saved on this device. Back up to move them to another device.</p>
+    <p class="note">Your characters and chats are saved on this device. Back up to move them to another device.</p>
+    </div>
   </aside>
 
   <main>
     <div class="topbar">
+      <button class="btn" id="openChats" type="button">Chats</button>
       <button class="btn" id="toggleSetup" type="button">Setup</button>
       <div class="scene"><b id="sceneTitle"></b><small id="sceneSub"></small></div>
       <span class="pill" id="ratingPill"></span>
@@ -288,14 +337,34 @@ const $ = id => document.getElementById(id);
 const fields = ["charName","persona","greeting","scenario","userName","userPersona","avoid","allow","length","style","mode","strength","styleExample","learned"];
 const checks = ["exact","noFiller","noQuestions","noOoc"];
 const SETUP_DEFAULTS = {learned:"",lessons:[],styleExample:"",mode:"line",strength:"vivid",exact:true,noFiller:true,noQuestions:true,noOoc:true};
-let state = load();
+let store = loadLib();
+let busyChat = null;
 
 function uid(){return Math.random().toString(36).slice(2,10)}
-function load(){
-  try{const s=JSON.parse(localStorage.getItem(KEY)); if(s&&s.setup&&Array.isArray(s.messages)){s.setup={...SETUP_DEFAULTS,...s.setup};return s}}catch(e){}
-  const s=JSON.parse(JSON.stringify(EXAMPLE)); s.setup={...SETUP_DEFAULTS,...s.setup}; s.messages.forEach(m=>m.id=uid()); return s;
+const LIB_KEY="storyroom.lib";
+function freshExample(){const s=JSON.parse(JSON.stringify(EXAMPLE));return {setup:{...SETUP_DEFAULTS,...s.setup},messages:s.messages.map(m=>({...m,id:uid()}))}}
+function greetingMsgs(setup){return (setup.greeting||"").trim()?[{id:uid(),role:"assistant",content:setup.greeting.trim()}]:[]}
+function loadLib(){
+  let lib=null; try{lib=JSON.parse(localStorage.getItem(LIB_KEY))}catch(e){}
+  if(lib&&lib.chars&&lib.chats&&lib.chats[lib.active]&&lib.chars[lib.chats[lib.active].charId]){
+    for(const k in lib.chars) lib.chars[k]={...SETUP_DEFAULTS,...lib.chars[k]};
+    for(const k in lib.chats){const c=lib.chats[k]; if(!lib.chars[c.charId]) delete lib.chats[k]; else c.messages=(c.messages||[]).filter(m=>m&&!m.thinking)}
+    return lib;
+  }
+  lib={v:2,chars:{},chats:{},active:null};
+  let old=null; try{old=JSON.parse(localStorage.getItem(KEY))}catch(e){}
+  const src=(old&&old.setup&&Array.isArray(old.messages))?{setup:{...SETUP_DEFAULTS,...old.setup},messages:old.messages.filter(m=>m&&!m.thinking)}:freshExample();
+  const cid=uid(), id=uid();
+  lib.chars[cid]=src.setup; lib.chats[id]={id,charId:cid,messages:src.messages,updated:Date.now()}; lib.active=id;
+  return lib;
 }
-function save(){try{localStorage.setItem(KEY,JSON.stringify(state))}catch(e){}}
+function cur(){return store.chats[store.active]}
+const state={
+  get setup(){return store.chars[cur().charId]}, set setup(v){store.chars[cur().charId]=v},
+  get messages(){return cur().messages}, set messages(v){cur().messages=v}
+};
+function save(){try{localStorage.setItem(LIB_KEY,JSON.stringify(store))}catch(e){}}
+function touch(){const c=cur(); if(c)c.updated=Date.now()}
 
 function esc(t){return t.replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]))}
 function fmt(t){return esc(t).replace(/\*([^*\n]+)\*/g,"<em>*$1*</em>")}
@@ -312,7 +381,10 @@ function fillSetup(){
 checks.forEach(f=>$(f).addEventListener("change",()=>{state.setup[f]=$(f).checked;save()}));
 fields.forEach(f=>$(f).addEventListener("input",()=>{state.setup[f]=$(f).value;save();renderHeader();if(f==="charName"||f==="userName")render()}));
 document.querySelectorAll('input[name=rating]').forEach(r=>r.addEventListener("change",()=>{state.setup.rating=r.value;save();renderHeader()}));
-$("toggleSetup").onclick=()=>{document.body.classList.add("setup-open");$("setup").style.display="flex"};
+$("toggleSetup").onclick=()=>openPane("setup");
+$("openChats").onclick=()=>openPane("chats");
+$("tabChats").onclick=()=>showTab("chats");
+$("tabSetup").onclick=()=>showTab("setup");
 $("closeSetup").onclick=()=>{$("setup").style.display=mq.matches?"none":""};
 const mq=matchMedia("(max-width:820px)");
 function syncAside(){$("setup").style.display=mq.matches?"none":""}
@@ -321,11 +393,11 @@ mq.addEventListener("change",syncAside);
 let confirmNew=false;
 $("newChat").onclick=()=>{
   const b=$("newChat");
-  if(!confirmNew){confirmNew=true;b.textContent="Click again to clear chat";setTimeout(()=>{confirmNew=false;b.textContent="Start new chat"},3000);return}
-  confirmNew=false;b.textContent="Start new chat";
+  if(!confirmNew){confirmNew=true;b.textContent="Click again to clear chat";setTimeout(()=>{confirmNew=false;b.textContent="Restart this chat"},3000);return}
+  confirmNew=false;b.textContent="Restart this chat";
   stopGen();
-  state.messages = state.setup.greeting.trim()? [{id:uid(),role:"assistant",content:state.setup.greeting.trim()}] : [];
-  save();render();if(mq.matches)$("setup").style.display="none";
+  state.messages = greetingMsgs(state.setup);
+  touch();save();render();if(mq.matches)$("setup").style.display="none";
 };
 
 function renderHeader(){
@@ -333,7 +405,109 @@ function renderHeader(){
   $("sceneTitle").textContent=s.charName||"Untitled character";
   $("sceneSub").textContent=s.scenario?s.scenario.slice(0,90)+(s.scenario.length>90?"…":""):"No scenario set";
   $("ratingPill").textContent=(RATINGS[s.rating]||RATINGS.teen).label;
+  $("editingNote").textContent="Editing "+(s.charName||"this character")+". Changes apply to every chat with them.";
+  renderLists();
 }
+
+/* ---------- chats & characters ---------- */
+function openPane(tab){showTab(tab);$("setup").style.display="flex"}
+function showTab(tab){
+  $("chatsPane").hidden=tab!=="chats"; $("setupPane").hidden=tab!=="setup";
+  $("tabChats").setAttribute("aria-selected",String(tab==="chats")); $("tabSetup").setAttribute("aria-selected",String(tab==="setup"));
+  if(tab==="chats")renderLists();
+}
+function twoTap(btn,label,fn){
+  if(btn.dataset.arm){fn();return}
+  btn.dataset.arm="1"; btn.textContent="Tap again";
+  setTimeout(()=>{delete btn.dataset.arm;btn.textContent=label},3000);
+}
+function ago(t){
+  const s=Math.round((Date.now()-(t||0))/1000);
+  if(s<60)return "just now"; if(s<3600)return Math.floor(s/60)+" min ago"; if(s<86400)return Math.floor(s/3600)+" h ago";
+  return new Date(t).toLocaleDateString(undefined,{month:"short",day:"numeric"});
+}
+function snippet(c){
+  const m=[...c.messages].reverse().find(x=>x.content&&x.content.trim());
+  return m?m.content.replace(/\s+/g," ").slice(0,70):"No messages yet";
+}
+function resetTuningUI(){
+  if(typeof pulledId!=="undefined"){pulledId=null}
+  $("pullArea").hidden=true; $("tuneResult").hidden=true; $("tuneMsg").textContent=""; $("lessonsNote").textContent="";
+}
+function switchChat(id,{toSetup=false}={}){
+  if(!store.chats[id])return;
+  store.active=id; save(); resetTuningUI(); status("");
+  fillSetup(); render(); scrollEnd();
+  if(toSetup){openPane("setup");$("charName").focus()}
+  else if(mq.matches)$("setup").style.display="none";
+  else renderLists();
+}
+function startChat(charId,opts){
+  const id=uid(); store.chats[id]={id,charId,messages:greetingMsgs(store.chars[charId]),updated:Date.now()};
+  switchChat(id,opts);
+}
+function ensureSomething(){
+  if(!Object.keys(store.chars).length){const ex=freshExample();const cid=uid();store.chars[cid]=ex.setup;const id=uid();store.chats[id]={id,charId:cid,messages:ex.messages,updated:Date.now()};store.active=id}
+  if(!store.chats[store.active]){
+    const rest=Object.values(store.chats).sort((a,b)=>(b.updated||0)-(a.updated||0));
+    if(rest.length){store.active=rest[0].id}
+    else{const cid=Object.keys(store.chars)[0];const id=uid();store.chats[id]={id,charId:cid,messages:greetingMsgs(store.chars[cid]),updated:Date.now()};store.active=id}
+  }
+}
+function deleteChat(id){
+  if(busyChat===id)stopGen();
+  delete store.chats[id];
+  const wasActive=store.active===id; ensureSomething(); save();
+  if(wasActive){resetTuningUI();fillSetup();render();scrollEnd()} else renderLists();
+}
+function deleteChar(cid){
+  for(const k of Object.keys(store.chats)) if(store.chats[k].charId===cid){if(busyChat===k)stopGen();delete store.chats[k]}
+  delete store.chars[cid];
+  ensureSomething(); save(); resetTuningUI(); fillSetup(); render(); scrollEnd();
+}
+function itemRow({title,sub,current,onOpen,actions}){
+  const row=document.createElement("div"); row.className="item"+(current?" current":"");
+  const main=document.createElement("button"); main.type="button"; main.className="main";
+  const b=document.createElement("b"); b.textContent=title; const s=document.createElement("span"); s.textContent=sub;
+  main.append(b,s); main.onclick=onOpen; row.append(main);
+  for(const a of actions){const x=document.createElement("button");x.type="button";x.className="mini"+(a.danger?" danger":"");x.textContent=a.label;x.onclick=()=>a.fn(x);row.append(x)}
+  return row;
+}
+function renderLists(){
+  if(!$("chatList"))return;
+  const s=state.setup, tuned=(s.learned||"").trim()||(s.styleExample||"").trim();
+  $("carryNote").textContent="New character starts with the reply settings"+(tuned?", style example and learned edits":"")+" from "+(s.charName||"this character")+". Blank character starts fresh.";
+  const cl=$("chatList"); cl.innerHTML="";
+  const chats=Object.values(store.chats).sort((a,b)=>(b.updated||0)-(a.updated||0));
+  for(const c of chats){
+    const ch=store.chars[c.charId]; if(!ch)continue;
+    cl.append(itemRow({title:ch.charName||"Untitled character",sub:(busyChat===c.id?"Writing a reply… · ":"")+ago(c.updated)+" · "+snippet(c),current:c.id===store.active,
+      onOpen:()=>switchChat(c.id),actions:[{label:"Delete",danger:true,fn:x=>twoTap(x,"Delete",()=>deleteChat(c.id))}]}));
+  }
+  const ql=$("charList"); ql.innerHTML="";
+  const curChar=cur()&&cur().charId;
+  for(const [cid,ch] of Object.entries(store.chars)){
+    const n=Object.values(store.chats).filter(c=>c.charId===cid).length;
+    ql.append(itemRow({title:ch.charName||"Untitled character",sub:n+" chat"+(n===1?"":"s")+(ch.scenario?" · "+ch.scenario.slice(0,50):""),current:cid===curChar,
+      onOpen:()=>startChat(cid),actions:[
+        {label:"New chat",fn:()=>startChat(cid)},
+        {label:"Copy",fn:()=>{const nid=uid();store.chars[nid]={...JSON.parse(JSON.stringify(ch)),charName:(ch.charName||"Character")+" (copy)"};startChat(nid,{toSetup:true})}},
+        {label:"Delete",danger:true,fn:x=>twoTap(x,"Delete",()=>deleteChar(cid))}]}));
+  }
+}
+// Tuning that carries into new characters: reply settings, content preferences, style example and learned edits.
+const CARRY=["userName","userPersona","rating","avoid","allow","length","style","mode","strength","exact","noFiller","noQuestions","noOoc","styleExample","learned"];
+function makeCharacter(withTuning){
+  const prev=state.setup, cid=uid();
+  const base={...SETUP_DEFAULTS,charName:"New character",persona:"",greeting:"",scenario:"",userName:prev.userName||"",userPersona:prev.userPersona||"",
+    rating:"teen",avoid:"",allow:"",length:"medium",style:""};
+  if(withTuning) for(const k of CARRY) if(prev[k]!==undefined) base[k]=JSON.parse(JSON.stringify(prev[k]));
+  store.chars[cid]=base;
+  startChat(cid,{toSetup:true});
+  $("lessonsNote").textContent=withTuning?"Started with the tuning from "+(prev.charName||"your last character")+".":"";
+}
+$("newCharBtn").onclick=()=>makeCharacter(true);
+$("blankCharBtn").onclick=()=>makeCharacter(false);
 
 /* ---------- chat rendering ---------- */
 function names(){return{ai:state.setup.charName||"Character",user:state.setup.userName||"You"}}
@@ -499,6 +673,8 @@ PREFERENCES LEARNED FROM THE USER'S EDITS (follow these in every reply):
 ${s.learned.trim()}`:"",
     (s.styleExample||"").trim()?`\nSTYLE EXAMPLE (approved by the user). Match its voice, sentence length, pacing, word choice, level of detail and formatting closely in every reply. Don't reuse its events or exact wording:\n"""\n${s.styleExample.trim()}\n"""`:"",
     s.style.trim()?`\nCUSTOM INSTRUCTIONS (these take priority over the style settings above):\n${s.style.trim()}`:"",
+    `Write in the same language the story is written in.`,
+    `Always end on a complete sentence and a finished thought. If you're running long, wrap the moment up cleanly instead of stopping mid-idea.`,
     `\nReply with only the story text for this turn, no name label.`
   ].filter(Boolean).join("\n");
 }
@@ -516,7 +692,7 @@ const PROVIDERS={
   openrouter:{model:"openrouter/free",url:"https://openrouter.ai/api/v1",note:"Get a free key at openrouter.ai. openrouter/free uses free models only. You can also enter any model name from their site; names ending in :free cost nothing."},
   custom:{model:"",url:"",note:"Any OpenAI-compatible server. It must use an https address to work from the installed app. Leave the key blank if it doesn't need one."}
 };
-let conn={provider:"openrouter",apiKey:"",model:"",baseUrl:"",thinkBudget:"400"};
+let conn={provider:"openrouter",apiKey:"",model:"",baseUrl:"",thinkBudget:"400",creativity:"balanced",ctx:"8192"};
 try{Object.assign(conn,JSON.parse(localStorage.getItem(CONN_KEY))||{})}catch(e){}
 function saveConn(){try{localStorage.setItem(CONN_KEY,JSON.stringify(conn))}catch(e){}}
 function fillConn(){
@@ -526,9 +702,11 @@ function fillConn(){
   $("baseUrl").value=conn.baseUrl; $("baseUrl").placeholder=p.url||"http://…/v1";
   $("baseUrlWrap").hidden=conn.provider!=="custom";
   $("thinkBudget").value=conn.thinkBudget??"400";
+  $("creativity").value=conn.creativity??"balanced"; $("ctx").value=conn.ctx??"8192";
+  $("ctxWrap").hidden=conn.provider!=="custom";
   $("providerNote").textContent=p.note;
 }
-["provider","apiKey","model","baseUrl","thinkBudget"].forEach(f=>["input","change"].forEach(ev=>$(f).addEventListener(ev,()=>{
+["provider","apiKey","model","baseUrl","thinkBudget","creativity","ctx"].forEach(f=>["input","change"].forEach(ev=>$(f).addEventListener(ev,()=>{
   const v=$(f).value.trim(); if(conn[f]===v)return;
   conn[f]=v; if(f==="provider"){conn.model="";} saveConn(); fillConn(); status("");
 })));
@@ -599,8 +777,24 @@ async function callModel(input,{signal,onText,onThinking}){
   const budget=conn.provider==="anthropic"?0:Number(conn.thinkBudget||0);
   const sysText=sys.content+(budget?`\n\nThinking: if you reason privately before replying, keep it brief (under about ${budget} words), then write the reply.`:"");
   let url,headers={"content-type":"application/json"},body;
-  let maxTokens=state.setup.length==="long"?2000:state.setup.length==="short"?500:1000;
+  let maxTokens=state.setup.length==="long"?3000:state.setup.length==="short"?800:1500; // ceilings only; the prompt sets the real length
   if(conn.provider!=="anthropic") maxTokens+=budget?Math.round(budget*1.6)+200:4000; // room for thinking
+  if(conn.provider==="custom"){
+    // Keep the request inside the model's memory, or the server cuts text out (often the instructions) and replies turn to nonsense.
+    const ctxTok=Number(conn.ctx||8192), est=s=>Math.ceil(s.length/3.2)+4;
+    maxTokens=Math.min(maxTokens,Math.floor(ctxTok*0.45));
+    const room=ctxTok-maxTokens-est(sysText)-200;
+    let used=0; const keep=[];
+    for(let i=msgs.length-1;i>=0;i--){const c=est(msgs[i].content); if(keep.length&&used+c>room)break; used+=c; keep.unshift(msgs[i])}
+    if(keep.length<msgs.length){
+      while(keep.length>1&&keep[0].role!=="user")keep.shift();
+      keep.unshift({role:"user",content:"((Earlier parts of this story were left out to fit the model's memory. Continue naturally from what follows.))"});
+      msgs.splice(0,msgs.length,...apiMessages(keep));
+    }
+  }
+  const TEMPS={focused:0.6,balanced:0.8,creative:1.0};
+  const sampling=conn.provider==="anthropic"?{}:{temperature:TEMPS[conn.creativity]??0.8,top_p:0.95};
+  const extras=conn.provider==="custom"?{min_p:0.05,repeat_penalty:1.1}:conn.provider==="openrouter"?{min_p:0.05,repetition_penalty:1.1}:{};
   if(conn.provider==="anthropic"){
     url=base+"/messages";
     Object.assign(headers,{"x-api-key":conn.apiKey,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"});
@@ -609,10 +803,13 @@ async function callModel(input,{signal,onText,onThinking}){
     url=base+"/chat/completions";
     if(conn.apiKey) headers.authorization="Bearer "+conn.apiKey;
     if(conn.provider==="openrouter"){headers["X-Title"]="Storyroom"}
-    body={model,max_tokens:maxTokens,messages:[{role:"system",content:sysText},...msgs],stream:true};
+    body={model,max_tokens:maxTokens,messages:[{role:"system",content:sysText},...msgs],stream:true,...sampling,...extras};
   }
+  // Some servers reject settings they don't know; retry once without them.
+  const plain=b=>{const c={...b};for(const k of [...Object.keys(extras),"chat_template_kwargs"])delete c[k];return c};
+  const send=async(b,opts)=>{try{return await streamChat(url,headers,b,signal,opts)}catch(e){if(e&&e.code==="http"&&e.status===400&&JSON.stringify(b)!==JSON.stringify(plain(b)))return await streamChat(url,headers,plain(b),signal,opts);throw e}};
   const wordsOf=s=>Math.round(s.length/5.5);
-  let result=await streamChat(url,headers,body,signal,{onText,onReason:rs=>{
+  let result=await send(body,{onText,onReason:rs=>{
     const w=wordsOf(rs); onThinking&&onThinking(w,budget,"think"); return !(budget&&w>budget);
   }});
   if(result.over){
@@ -622,33 +819,89 @@ async function callModel(input,{signal,onText,onThinking}){
     last.content+=`\n\n((Your planning notes so far:\n${result.reasoning.trim().slice(-2500)}\n\nStop planning. Write the reply now, directly. /no_think))`;
     const body2={...body,max_tokens:maxTokens,messages:[{role:"system",content:sysText},...msgs2],chat_template_kwargs:{enable_thinking:false}};
     const opts={onText,onReason:rs=>{onThinking&&onThinking(wordsOf(rs),budget,"wrap");return true}};
-    try{result=await streamChat(url,headers,body2,signal,opts)}
-    catch(e){
-      if(e&&e.code==="http"&&e.status===400){delete body2.chat_template_kwargs;result=await streamChat(url,headers,body2,signal,opts)}
-      else throw e;
-    }
+    result=await send(body2,opts);
   }
   if(!result.text.trim())throw {code:"empty",message:result.reasoning?"The model used its whole reply limit thinking and never answered. Choose a smaller thinking budget in Setup, then try again.":"No reply came back. The model may have declined; try editing the last line."};
   return {text:result.text,truncated:result.truncated};
 }
 
+/* ---------- garbled replies ---------- */
+function cleanReply(t){
+  const n=(state.setup.charName||"").replace(/[.*+?^${}()|[\]\\]/g,"\\$&");
+  return t.replace(/<\|[^|>\n]{1,40}\|>/g,"").replace(/<\/?(think|thinking|assistant|user|system|im_start|im_end)>/gi,"")
+    .replace(new RegExp("^\\s*(?:assistant|"+(n||"assistant")+")\\s*:\\s*","i"),"").trim();
+}
+function looksBroken(t,chat,target){
+  const s=t.trim(); if(!s)return false;
+  const chatText=chat.messages.filter(m=>m!==target).map(m=>m.content).join(" ");
+  const cjk=(s.match(/[぀-ヿ㐀-鿿가-힯]/g)||[]).length;
+  if(cjk>s.length*0.08&&!/[぀-ヿ㐀-鿿가-힯]/.test(chatText))return true;   // drifted into another script
+  if(/(.)\1{24,}/.test(s))return true;                                                                 // one character over and over
+  const nonSpace=s.replace(/\s/g,""); const letters=(nonSpace.match(/\p{L}/gu)||[]).length;
+  if(nonSpace.length>40&&letters<nonSpace.length*0.55)return true;                                     // symbol soup
+  const words=s.toLowerCase().match(/\p{L}+/gu)||[]; const seen={};
+  for(let i=0;i+3<=words.length;i++){const k=words.slice(i,i+3).join(" ");if((seen[k]=(seen[k]||0)+1)>=6)return true} // looping phrase
+  return false;
+}
+
+/* ---------- finishing cut-off replies ---------- */
+const NOTHINK=" /no_think";
+function showLive(chat,target){
+  if(store.active!==chat.id)return;
+  const bodies=document.querySelectorAll(".msg .body");const b=bodies[bodies.length-1];if(b)b.innerHTML=fmt(target.content);scrollEnd();
+}
+function joinText(before,more){
+  if(!more)return before;
+  if(/\s$/.test(before)||/^[\s,.;:!?)'"”’…—-]/.test(more))return before+more;
+  return before+" "+more;
+}
+async function extend(target,chat,signal){
+  const before=target.content;
+  const t=[{role:"user",content:rules()+"\n\nThe story so far follows."}];
+  for(const m of chat.messages){if(m===target)break;if(m.content.trim()&&!m.thinking)t.push({role:m.role,content:m.content})}
+  t.push({role:"assistant",content:before});
+  t.push({role:"user",content:"((Your last reply was cut off. Continue it exactly where it stops, even mid-sentence. Write only the continuation, don't repeat anything, and bring the thought to a natural finish."+NOTHINK+"))"});
+  const {text,truncated}=await GEN(t,signal,({text})=>{target.content=joinText(before,text);showLive(chat,target)});
+  target.content=joinText(before,text.replace(/^[ \t]+/,""));
+  return truncated;
+}
+function trimToSentence(s){
+  const ends=[...s.matchAll(/[.!?…]["'”’*)\]]*(?=\s|$)/g)];
+  if(!ends.length)return null;
+  const last=ends.at(-1), end=last.index+last[0].length;
+  return end>=s.length*0.5?s.slice(0,end).trimEnd():null;
+}
+
 async function run(target, input, mode){
+  const chat=cur(); busyChat=chat.id;
   busy=new AbortController(); setBusy(true); status("");
   const base = mode==="continue"? target.content : "";
   target.thinking=true; render(); scrollEnd();
   try{
-    const {text,truncated}=await callModel(input,{signal:busy.signal,onThinking:(w,bud,phase)=>{if(base)return;const bodies=document.querySelectorAll(".msg .body");const b=bodies[bodies.length-1];if(b)b.innerHTML=phase==="wrap"?"<em>…thinking budget reached, writing the reply…</em>":"<em>…thinking ("+w+(bud?" of "+bud:"")+" words)…</em>"},onText:({text})=>{
+    const {text,truncated}=await callModel(input,{signal:busy.signal,onThinking:(w,bud,phase)=>{if(base||store.active!==chat.id)return;const bodies=document.querySelectorAll(".msg .body");const b=bodies[bodies.length-1];if(b)b.innerHTML=phase==="wrap"?"<em>…thinking budget reached, writing the reply…</em>":"<em>…thinking ("+w+(bud?" of "+bud:"")+" words)…</em>"},onText:({text})=>{
       target.content=(base?base+(base.endsWith(" ")?"":" "):"")+text;
-      const bodies=document.querySelectorAll(".msg .body");const b=bodies[bodies.length-1];if(b)b.innerHTML=fmt(target.content);scrollEnd();}});
+      if(store.active===chat.id){const bodies=document.querySelectorAll(".msg .body");const b=bodies[bodies.length-1];if(b)b.innerHTML=fmt(target.content);scrollEnd();}}});
     target.content=(base?base+(base.endsWith(" ")?"":" "):"")+text;
-    if(truncated) target.error="Cut short. Use Continue to pick up where it stopped.";
+    let cut=truncated, tries=0;
+    target.content=cleanReply(target.content);
+    if(mode!=="continue"&&looksBroken(target.content,chat,target)&&!busy.signal.aborted){
+      // Garbled first try: ask again once.
+      target.content="";showLive(chat,target);
+      const again=await GEN(input,busy.signal,({text})=>{target.content=text;showLive(chat,target)});
+      target.content=cleanReply(again.text); cut=again.truncated;
+      target.note=looksBroken(target.content,chat,target)?"This reply still looks garbled. Try Regenerate, a lower Creativity setting, or a smaller model.":"The first try came out garbled, so it was rewritten.";
+    }
+    while(cut&&tries<2&&!busy.signal.aborted){tries++;cut=await extend(target,chat,busy.signal)}
+    if(cut){const t=trimToSentence(target.content); if(t)target.content=t; else target.error="Cut short. Use Continue to pick up where it stopped."}
+    target.content=cleanReply(target.content);
+    if(target.note){target.error=target.error||target.note;delete target.note}
   }catch(e){
     if(e&&e.text) target.content=(base?base+(base.endsWith(" ")?"":" "):"")+e.text;
     if(e&&e.code!=="cancelled"){status(e.message||"Something went wrong. Try again.");if(e.code==="setup"&&mq.matches)$("setup").style.display="flex"}
   }finally{
     delete target.thinking;
-    if(!target.content.trim()) state.messages=state.messages.filter(m=>m!==target);
-    busy=null; setBusy(false); save(); render(); scrollEnd();
+    if(!target.content.trim()) chat.messages=chat.messages.filter(m=>m!==target);
+    chat.updated=Date.now(); busy=null; busyChat=null; setBusy(false); save(); render(); if(store.active===chat.id)scrollEnd();
   }
 }
 function generate(){
@@ -671,17 +924,19 @@ function status(t){$("status").textContent=t;$("status").hidden=!t}
 
 $("stop").onclick=stopGen;
 $("composer").addEventListener("submit",e=>{
-  e.preventDefault(); if(busy)return;
+  e.preventDefault();
+  if(busy){status("A reply is still being written"+(busyChat&&busyChat!==store.active?" in another chat":"")+". Wait for it to finish, or tap Stop.");return}
   const v=$("input").value.trim(); if(!v)return;
-  state.messages.push({id:uid(),role:"user",content:v}); $("input").value=""; save(); render();
+  state.messages.push({id:uid(),role:"user",content:v}); $("input").value=""; touch(); save(); render();
   generate();
 });
 $("input").addEventListener("keydown",e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();$("composer").requestSubmit()}});
 
 /* ---------- backup ---------- */
 $("exportBtn").onclick=async()=>{
-  const data=JSON.stringify({app:"storyroom",version:1,setup:state.setup,messages:state.messages.map(({id,role,content})=>({id,role,content}))},null,2);
-  const name="storyroom-"+(state.setup.charName||"chat").replace(/[^\w]+/g,"-").toLowerCase()+".json";
+  const chats={};for(const [k,c] of Object.entries(store.chats))chats[k]={id:c.id,charId:c.charId,updated:c.updated,messages:c.messages.filter(m=>!m.thinking).map(({id,role,content})=>({id,role,content}))};
+  const data=JSON.stringify({app:"storyroom",version:2,chars:store.chars,chats},null,2);
+  const name="storyroom-backup-"+new Date().toISOString().slice(0,10)+".json";
   const file=new File([data],name,{type:"application/json"});
   try{ if(navigator.canShare&&navigator.canShare({files:[file]})){await navigator.share({files:[file],title:"Storyroom backup"});return} }catch(e){if(e.name==="AbortError")return}
   const a=document.createElement("a");a.href=URL.createObjectURL(file);a.download=name;document.body.append(a);a.click();
@@ -692,9 +947,17 @@ $("importFile").onchange=async()=>{
   const f=$("importFile").files[0]; if(!f)return;
   try{
     const j=JSON.parse(await f.text());
-    if(!j.setup||!Array.isArray(j.messages))throw 0;
-    stopGen(); state={setup:{...EXAMPLE.setup,...SETUP_DEFAULTS,...j.setup},messages:j.messages.filter(m=>m&&(m.role==="user"||m.role==="assistant")&&typeof m.content==="string").map(m=>({id:m.id||uid(),role:m.role,content:m.content}))};
-    save(); fillSetup(); render(); scrollEnd(); status("");
+    const clean=ms=>(Array.isArray(ms)?ms:[]).filter(m=>m&&(m.role==="user"||m.role==="assistant")&&typeof m.content==="string").map(m=>({id:uid(),role:m.role,content:m.content}));
+    let first=null, added=0;
+    if(j.chars&&j.chats){
+      const map={};
+      for(const [k,ch] of Object.entries(j.chars)){const nid=uid();map[k]=nid;store.chars[nid]={...EXAMPLE.setup,...SETUP_DEFAULTS,...ch}}
+      for(const c of Object.values(j.chats)){if(!map[c.charId])continue;const id=uid();store.chats[id]={id,charId:map[c.charId],messages:clean(c.messages),updated:c.updated||Date.now()};added++;if(!first||store.chats[id].updated>store.chats[first].updated)first=id}
+    }else if(j.setup&&Array.isArray(j.messages)){
+      const cid=uid(),id=uid();store.chars[cid]={...EXAMPLE.setup,...SETUP_DEFAULTS,...j.setup};store.chats[id]={id,charId:cid,messages:clean(j.messages),updated:Date.now()};first=id;added=1;
+    }else throw 0;
+    if(!first)throw 0;
+    switchChat(first); openPane("chats"); status("Restored "+added+" chat"+(added===1?"":"s")+". Your existing chats were kept.");
   }catch(e){status("That file isn't a Storyroom backup.")}
   $("importFile").value="";
 };

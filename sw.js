@@ -1,6 +1,6 @@
 // Caches the app shell so Storyroom opens instantly and works as an installed app.
 // AI requests always go to the network and are never cached.
-const CACHE = "storyroom-v11";
+const CACHE = "storyroom-v15";
 const SHELL = ["./", "index.html", "manifest.json", "icon-192.png", "icon-512.png", "apple-touch-icon.png"];
 
 self.addEventListener("install", e => {
