@@ -129,11 +129,18 @@ input[type=password]{background:var(--page);border:1px solid var(--line);border-
         </select></label>
       <label for="apiKey">API key <small>Stored only on this device</small><input type="password" id="apiKey" autocomplete="off" spellcheck="false"></label>
       <label for="model">Model<input type="text" id="model" spellcheck="false"></label>
+      <label for="thinkBudget">Thinking budget <small>For models that think before replying</small>
+        <select id="thinkBudget">
+          <option value="150">Short (about 150 words)</option>
+          <option value="400">Medium (about 400 words)</option>
+          <option value="1000">Long (about 1,000 words)</option>
+          <option value="0">Unlimited</option>
+        </select></label>
       <label for="baseUrl" id="baseUrlWrap">Server URL <small>An https address ending in /v1</small><input type="text" id="baseUrl" spellcheck="false"></label>
       <p class="note" id="providerNote"></p>
       <div class="row"><button class="btn" type="button" id="testBtn">Test connection</button></div>
       <pre id="testOut" hidden style="white-space:pre-wrap;overflow-wrap:anywhere;font-size:11.5px;background:var(--page);border:1px solid var(--line);border-radius:6px;padding:8px;margin:0;max-height:260px;overflow:auto"></pre>
-      <p class="note">App version 9</p>
+      <p class="note">App version 11</p>
     </div>
 
     <div class="group">
@@ -198,6 +205,7 @@ input[type=password]{background:var(--page);border:1px solid var(--line);border-
         <div class="row"><button class="btn primary" type="button" id="releaseBtn">Release back to chat</button><button class="btn" type="button" id="pullCancel">Cancel</button></div>
       </div>
       <p class="note" id="lessonsNote"></p>
+      <label for="learned">What it has learned from your edits <small>Edit or delete lines anytime</small><textarea id="learned" rows="4" placeholder="Nothing yet. Release an edited reply to teach it."></textarea></label>
       <div class="row"><button class="btn" type="button" id="lessonsClear" hidden>Forget learned edits</button></div>
     </div>
 
@@ -277,9 +285,9 @@ let busy = null; // AbortController while generating
 let editingId = null;
 let sample = null;
 const $ = id => document.getElementById(id);
-const fields = ["charName","persona","greeting","scenario","userName","userPersona","avoid","allow","length","style","mode","strength","styleExample"];
+const fields = ["charName","persona","greeting","scenario","userName","userPersona","avoid","allow","length","style","mode","strength","styleExample","learned"];
 const checks = ["exact","noFiller","noQuestions","noOoc"];
-const SETUP_DEFAULTS = {lessons:[],styleExample:"",mode:"line",strength:"vivid",exact:true,noFiller:true,noQuestions:true,noOoc:true};
+const SETUP_DEFAULTS = {learned:"",lessons:[],styleExample:"",mode:"line",strength:"vivid",exact:true,noFiller:true,noQuestions:true,noOoc:true};
 let state = load();
 
 function uid(){return Math.random().toString(36).slice(2,10)}
@@ -412,34 +420,57 @@ $("tuneClear").onclick=()=>{
 };
 
 /* ---------- reply tuning ---------- */
-let pulledId=null, pulledOriginal="";
-function lessonsSync(){
-  const n=(state.setup.lessons||[]).length;
-  $("lessonsNote").textContent=n?`Learning from your ${n} most recent edit${n>1?"s":""}.`:"";
-  $("lessonsClear").hidden=!n;
-}
+let pulledId=null, pulledOriginal="", learnCtl=null;
+function lessonsSync(){ $("lessonsClear").hidden=!(state.setup.learned||"").trim(); }
+$("learned").addEventListener("input",lessonsSync);
+function tuneNote(t){$("lessonsNote").textContent=t}
 $("pullBtn").onclick=()=>{
+  if(busy){tuneNote("Wait for the current reply to finish, then pull it.");return}
   const last=[...state.messages].reverse().find(m=>m.role==="assistant"&&!m.thinking&&m.content.trim());
-  if(!last){$("lessonsNote").textContent="There's no reply to pull yet.";return}
-  pulledId=last.id; pulledOriginal=last.content;
+  if(!last){tuneNote("There's no reply to pull yet.");return}
+  pulledId=last.id; pulledOriginal=last.content; tuneNote("");
   $("pullText").value=last.content; $("pullArea").hidden=false; $("pullText").focus();
 };
-$("pullCancel").onclick=()=>{pulledId=null;$("pullArea").hidden=true;lessonsSync()};
-$("releaseBtn").onclick=()=>{
+$("pullCancel").onclick=()=>{pulledId=null;$("pullArea").hidden=true;tuneNote("")};
+$("releaseBtn").onclick=async()=>{
   const v=$("pullText").value.trim(); if(!v||!pulledId)return;
+  if(busy){tuneNote("Wait for the current reply to finish, then release.");return}
   const m=state.messages.find(x=>x.id===pulledId);
   if(m){m.content=v;delete m.error}
-  const changed=v!==pulledOriginal.trim();
-  if(changed&&$("pullLearn").checked){
-    state.setup.lessons=[...(state.setup.lessons||[]),{before:pulledOriginal.slice(0,1500),after:v.slice(0,1500)}].slice(-3);
-  }
-  save(); render(); pulledId=null; $("pullArea").hidden=true; lessonsSync();
-  $("lessonsNote").textContent=(m?"Released to the chat. ":"That reply is no longer in the chat. ")+(changed&&$("pullLearn").checked?$("lessonsNote").textContent:"");
+  const before=pulledOriginal.trim(), learn=$("pullLearn").checked&&v!==before;
+  pulledId=null; $("pullArea").hidden=true; save(); render(); scrollEnd();
+  tuneNote(m?"Released to the chat.":"That reply is no longer in the chat.");
+  if(!learn) return;
+  learnCtl?.abort(); learnCtl=new AbortController();
+  tuneNote((m?"Released to the chat. ":"")+"Learning from your edit…");
+  const ask=`Compare two versions of a reply in a roleplay story. The EDITED version is how the user wants replies to be written.
+List 1 to 4 short style rules describing how the EDITED version differs from the ORIGINAL, so a writer can apply them to future replies. Cover style only: length, sentence style, tone, word choice, dialogue versus narration, what was cut or added. Don't mention specific events, names or plot. Reply with only the rules, one per line, each starting with "- ".
+
+ORIGINAL:
+"""
+${before.slice(0,2000)}
+"""
+
+EDITED:
+"""
+${v.slice(0,2000)}
+"""`;
+  try{
+    const {text}=await GEN([{role:"user",content:"You are a careful writing editor."},{role:"user",content:ask}],learnCtl.signal,()=>{});
+    const rules=text.split("\n").map(l=>l.trim()).filter(l=>/^[-*•]\s+\S/.test(l)).map(l=>"- "+l.replace(/^[-*•]\s+/,"")).slice(0,4);
+    if(!rules.length){tuneNote("Released. The model didn't return any style rules this time; you can add your own below.");return}
+    const lines=[...(state.setup.learned||"").split("\n").map(l=>l.trim()).filter(Boolean)];
+    for(const r of rules) if(!lines.some(l=>l.toLowerCase()===r.toLowerCase())) lines.push(r);
+    state.setup.learned=lines.slice(-12).join("\n"); $("learned").value=state.setup.learned; save(); lessonsSync();
+    tuneNote(`Released. Learned ${rules.length} new rule${rules.length>1?"s":""} from your edit.`);
+  }catch(e){
+    if(!e||e.code!=="cancelled") tuneNote("Released, but couldn't learn from this edit: "+errText(e||{}));
+  }finally{learnCtl=null}
 };
 let lessonsArm=false;
 $("lessonsClear").onclick=()=>{
   if(!lessonsArm){lessonsArm=true;$("lessonsClear").textContent="Click again to forget";setTimeout(()=>{lessonsArm=false;$("lessonsClear").textContent="Forget learned edits"},3000);return}
-  lessonsArm=false;$("lessonsClear").textContent="Forget learned edits";state.setup.lessons=[];save();lessonsSync();
+  lessonsArm=false;$("lessonsClear").textContent="Forget learned edits";state.setup.learned="";state.setup.lessons=[];$("learned").value="";save();lessonsSync();tuneNote("");
 };
 
 function rules(){
@@ -463,7 +494,9 @@ function rules(){
     s.noQuestions?`Don't end replies by asking the user what happens next or offering them choices.`:"",
     s.noOoc?`Never step outside the story to add notes, commentary, summaries or explanations.`:"",
     `Earlier replies may have been edited by the user; treat them as canon. Text inside (( double parentheses )) is an out-of-character note from the user: follow it${s.noOoc?"":", and only answer out of character if it asks a question"}.`,
-    (s.lessons||[]).length?`\nEDITS THE USER MADE TO YOUR EARLIER REPLIES. Study what they changed (length, tone, word choice, what they cut or added) and write every new reply the way their edited versions read. Don't reuse the content itself.\n`+s.lessons.map((l,i)=>`Edit ${i+1}. Your version:\n"""\n${l.before}\n"""\nThe user's version:\n"""\n${l.after}\n"""`).join("\n"):"",
+    (s.learned||"").trim()?`
+PREFERENCES LEARNED FROM THE USER'S EDITS (follow these in every reply):
+${s.learned.trim()}`:"",
     (s.styleExample||"").trim()?`\nSTYLE EXAMPLE (approved by the user). Match its voice, sentence length, pacing, word choice, level of detail and formatting closely in every reply. Don't reuse its events or exact wording:\n"""\n${s.styleExample.trim()}\n"""`:"",
     s.style.trim()?`\nCUSTOM INSTRUCTIONS (these take priority over the style settings above):\n${s.style.trim()}`:"",
     `\nReply with only the story text for this turn, no name label.`
@@ -483,7 +516,7 @@ const PROVIDERS={
   openrouter:{model:"openrouter/free",url:"https://openrouter.ai/api/v1",note:"Get a free key at openrouter.ai. openrouter/free uses free models only. You can also enter any model name from their site; names ending in :free cost nothing."},
   custom:{model:"",url:"",note:"Any OpenAI-compatible server. It must use an https address to work from the installed app. Leave the key blank if it doesn't need one."}
 };
-let conn={provider:"openrouter",apiKey:"",model:"",baseUrl:""};
+let conn={provider:"openrouter",apiKey:"",model:"",baseUrl:"",thinkBudget:"400"};
 try{Object.assign(conn,JSON.parse(localStorage.getItem(CONN_KEY))||{})}catch(e){}
 function saveConn(){try{localStorage.setItem(CONN_KEY,JSON.stringify(conn))}catch(e){}}
 function fillConn(){
@@ -492,11 +525,13 @@ function fillConn(){
   $("model").value=conn.model; $("model").placeholder=p.model||"model name";
   $("baseUrl").value=conn.baseUrl; $("baseUrl").placeholder=p.url||"http://…/v1";
   $("baseUrlWrap").hidden=conn.provider!=="custom";
+  $("thinkBudget").value=conn.thinkBudget??"400";
   $("providerNote").textContent=p.note;
 }
-["provider","apiKey","model","baseUrl"].forEach(f=>$(f).addEventListener("input",()=>{
-  conn[f]=$(f).value.trim(); if(f==="provider"){conn.model="";} saveConn(); fillConn(); status("");
-}));
+["provider","apiKey","model","baseUrl","thinkBudget"].forEach(f=>["input","change"].forEach(ev=>$(f).addEventListener(ev,()=>{
+  const v=$(f).value.trim(); if(conn[f]===v)return;
+  conn[f]=v; if(f==="provider"){conn.model="";} saveConn(); fillConn(); status("");
+})));
 
 function apiMessages(input){
   // merge consecutive same-role turns; Anthropic requires starting with user
@@ -504,6 +539,55 @@ function apiMessages(input){
   for(const t of input){const last=out.at(-1); if(last&&last.role===t.role) last.content+="\n\n"+t.content; else out.push({...t})}
   return out;
 }
+async function streamChat(url,headers,body,signal,{onText,onReason}){
+  if(signal.aborted) throw {code:"cancelled"};
+  const inner=new AbortController(), stopOuter=()=>inner.abort();
+  signal.addEventListener("abort",stopOuter,{once:true});
+  let text="",reasoning="",truncated=false,over=false;
+  try{
+    let res;
+    try{res=await fetch(url,{method:"POST",headers,body:JSON.stringify(body),signal:inner.signal})}
+    catch(e){if(e&&e.name==="AbortError")throw {code:"cancelled"};throw {code:"network",message:"Couldn't reach the AI server. Check your connection"+(conn.provider==="custom"?" and server URL.":".")}}
+    if(!res.ok){
+      let detail="";try{const j=await res.json();detail=j.error?.message||j.message||""}catch(e){}
+      const msg=res.status===401||res.status===403?"Your API key was rejected. Check it in Setup.":
+        res.status===429?"Rate limit or credit limit reached. Wait a moment or check your account balance.":
+        res.status===404?"Model or server not found. Check the model name in Setup.":"The AI server returned an error ("+res.status+").";
+      throw {code:"http",status:res.status,message:msg+(detail?" "+detail:"")};
+    }
+    const reader=res.body.getReader(),dec=new TextDecoder();let buf="";
+    try{
+      outer: for(;;){
+        const {value,done}=await reader.read(); if(done)break;
+        buf+=dec.decode(value,{stream:true});
+        const lines=buf.split("\n"); buf=lines.pop();
+        for(const line of lines){
+          const l=line.trim(); if(!l.startsWith("data:"))continue;
+          const d=l.slice(5).trim(); if(!d||d==="[DONE]")continue;
+          let j;try{j=JSON.parse(d)}catch(e){continue}
+          let delta="";
+          if(conn.provider==="anthropic"){
+            if(j.type==="content_block_delta"&&j.delta?.type==="text_delta")delta=j.delta.text;
+            if(j.type==="message_delta"&&j.delta?.stop_reason==="max_tokens")truncated=true;
+            if(j.type==="error")throw {code:"http",message:j.error?.message||"The AI server reported an error.",text};
+          }else{
+            if(j.error)throw {code:"http",message:j.error.message||"The AI server reported an error.",text};
+            const c=j.choices?.[0]; delta=c?.delta?.content||""; if(c?.finish_reason==="length")truncated=true;
+            const r=c?.delta?.reasoning_content||c?.delta?.reasoning||"";
+            if(r&&!text){reasoning+=r; if(onReason&&onReason(reasoning)===false){over=true;inner.abort();break outer}}
+          }
+          if(delta){text+=delta;onText({text})}
+        }
+      }
+    }catch(e){
+      if(e&&e.name==="AbortError"){ if(over) return {text,reasoning,truncated,over}; throw {code:"cancelled",text} }
+      throw e;
+    }
+    if(over){try{reader.cancel()}catch(e){}}
+    return {text,reasoning,truncated,over};
+  }finally{signal.removeEventListener("abort",stopOuter)}
+}
+
 async function callModel(input,{signal,onText,onThinking}){
   const p=PROVIDERS[conn.provider]||PROVIDERS.anthropic;
   const model=conn.model||p.model, base=(conn.provider==="custom"?conn.baseUrl:p.url).replace(/\/+$/,"");
@@ -512,56 +596,40 @@ async function callModel(input,{signal,onText,onThinking}){
   if(!conn.apiKey&&conn.provider!=="custom") throw {code:"setup",message:"Add your API key in Setup → AI connection."};
   const [sys,...rest]=input; const msgs=apiMessages(rest);
   if(!msgs.length||msgs[0].role!=="user") msgs.unshift({role:"user",content:"((Begin the scene.))"});
+  const budget=conn.provider==="anthropic"?0:Number(conn.thinkBudget||0);
+  const sysText=sys.content+(budget?`\n\nThinking: if you reason privately before replying, keep it brief (under about ${budget} words), then write the reply.`:"");
   let url,headers={"content-type":"application/json"},body;
   let maxTokens=state.setup.length==="long"?2000:state.setup.length==="short"?500:1000;
-  if(conn.provider!=="anthropic") maxTokens+=4000; // room for models that think before replying
+  if(conn.provider!=="anthropic") maxTokens+=budget?Math.round(budget*1.6)+200:4000; // room for thinking
   if(conn.provider==="anthropic"){
     url=base+"/messages";
     Object.assign(headers,{"x-api-key":conn.apiKey,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"});
-    body={model,max_tokens:maxTokens,system:sys.content,messages:msgs,stream:true};
+    body={model,max_tokens:maxTokens,system:sysText,messages:msgs,stream:true};
   }else{
     url=base+"/chat/completions";
     if(conn.apiKey) headers.authorization="Bearer "+conn.apiKey;
     if(conn.provider==="openrouter"){headers["X-Title"]="Storyroom"}
-    body={model,max_tokens:maxTokens,messages:[{role:"system",content:sys.content},...msgs],stream:true};
+    body={model,max_tokens:maxTokens,messages:[{role:"system",content:sysText},...msgs],stream:true};
   }
-  let res;
-  try{res=await fetch(url,{method:"POST",headers,body:JSON.stringify(body),signal})}
-  catch(e){if(e.name==="AbortError")throw {code:"cancelled"};throw {code:"network",message:"Couldn't reach the AI server. Check your connection"+(conn.provider==="custom"?" and server URL.":".")}}
-  if(!res.ok){
-    let detail="";try{const j=await res.json();detail=j.error?.message||j.message||""}catch(e){}
-    const msg=res.status===401||res.status===403?"Your API key was rejected. Check it in Setup.":
-      res.status===429?"Rate limit or credit limit reached. Wait a moment or check your account balance.":
-      res.status===404?"Model or server not found. Check the model name in Setup.":"The AI server returned an error ("+res.status+").";
-    throw {code:"http",message:msg+(detail?" "+detail:"")};
-  }
-  const reader=res.body.getReader(),dec=new TextDecoder();let buf="",text="",truncated=false,thought=0;
-  try{
-    for(;;){
-      const {value,done}=await reader.read(); if(done)break;
-      buf+=dec.decode(value,{stream:true});
-      const lines=buf.split("\n"); buf=lines.pop();
-      for(const line of lines){
-        const l=line.trim(); if(!l.startsWith("data:"))continue;
-        const d=l.slice(5).trim(); if(!d||d==="[DONE]")continue;
-        let j;try{j=JSON.parse(d)}catch(e){continue}
-        let delta="";
-        if(conn.provider==="anthropic"){
-          if(j.type==="content_block_delta"&&j.delta?.type==="text_delta")delta=j.delta.text;
-          if(j.type==="message_delta"&&j.delta?.stop_reason==="max_tokens")truncated=true;
-          if(j.type==="error")throw {code:"http",message:j.error?.message||"The AI server reported an error.",text};
-        }else{
-          const c=j.choices?.[0]; delta=c?.delta?.content||""; if(c?.finish_reason==="length")truncated=true;
-          const r=c?.delta?.reasoning_content||c?.delta?.reasoning||"";
-          if(r&&!text){thought+=r.length;onThinking&&onThinking(Math.round(thought/5))}
-          if(j.error)throw {code:"http",message:j.error.message||"The AI server reported an error.",text};
-        }
-        if(delta){text+=delta;onText({text})}
-      }
+  const wordsOf=s=>Math.round(s.length/5.5);
+  let result=await streamChat(url,headers,body,signal,{onText,onReason:rs=>{
+    const w=wordsOf(rs); onThinking&&onThinking(w,budget,"think"); return !(budget&&w>budget);
+  }});
+  if(result.over){
+    // Budget reached: hand the model its notes and ask for the reply with thinking switched off.
+    onThinking&&onThinking(budget,budget,"wrap");
+    const msgs2=msgs.map(m=>({...m})), last=msgs2.at(-1);
+    last.content+=`\n\n((Your planning notes so far:\n${result.reasoning.trim().slice(-2500)}\n\nStop planning. Write the reply now, directly. /no_think))`;
+    const body2={...body,max_tokens:maxTokens,messages:[{role:"system",content:sysText},...msgs2],chat_template_kwargs:{enable_thinking:false}};
+    const opts={onText,onReason:rs=>{onThinking&&onThinking(wordsOf(rs),budget,"wrap");return true}};
+    try{result=await streamChat(url,headers,body2,signal,opts)}
+    catch(e){
+      if(e&&e.code==="http"&&e.status===400){delete body2.chat_template_kwargs;result=await streamChat(url,headers,body2,signal,opts)}
+      else throw e;
     }
-  }catch(e){if(e&&e.name==="AbortError")throw {code:"cancelled",text};throw e}
-  if(!text.trim())throw {code:"empty",message:thought?"The model spent its whole reply limit thinking and never answered. Turn off thinking (reasoning) for this model in LM Studio, then try again.":"No reply came back. The model may have declined; try editing the last line."};
-  return {text,truncated};
+  }
+  if(!result.text.trim())throw {code:"empty",message:result.reasoning?"The model used its whole reply limit thinking and never answered. Choose a smaller thinking budget in Setup, then try again.":"No reply came back. The model may have declined; try editing the last line."};
+  return {text:result.text,truncated:result.truncated};
 }
 
 async function run(target, input, mode){
@@ -569,7 +637,7 @@ async function run(target, input, mode){
   const base = mode==="continue"? target.content : "";
   target.thinking=true; render(); scrollEnd();
   try{
-    const {text,truncated}=await callModel(input,{signal:busy.signal,onThinking:(w)=>{if(base)return;const bodies=document.querySelectorAll(".msg .body");const b=bodies[bodies.length-1];if(b)b.innerHTML="<em>…thinking ("+w+" words so far)…</em>"},onText:({text})=>{
+    const {text,truncated}=await callModel(input,{signal:busy.signal,onThinking:(w,bud,phase)=>{if(base)return;const bodies=document.querySelectorAll(".msg .body");const b=bodies[bodies.length-1];if(b)b.innerHTML=phase==="wrap"?"<em>…thinking budget reached, writing the reply…</em>":"<em>…thinking ("+w+(bud?" of "+bud:"")+" words)…</em>"},onText:({text})=>{
       target.content=(base?base+(base.endsWith(" ")?"":" "):"")+text;
       const bodies=document.querySelectorAll(".msg .body");const b=bodies[bodies.length-1];if(b)b.innerHTML=fmt(target.content);scrollEnd();}});
     target.content=(base?base+(base.endsWith(" ")?"":" "):"")+text;
